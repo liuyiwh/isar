@@ -352,16 +352,20 @@ do_copy_boot_files() {
         fi
     fi
 
-    for file in ${DTB_FILES}; do
-        dtb="$(find '${IMAGE_ROOTFS}/usr/lib' -type f \
-                    -iwholename '*linux-image-*/'${file} | head -1)"
+    if [ -n "${DTB_FILES}" ]; then
+        mkdir -p "${DEPLOYDIR}/${IMAGE_FULLNAME}.dtbs"
 
-        if [ -z "$dtb" -o ! -e "$dtb" ]; then
-            die "${file} not found"
-        fi
+        for file in ${DTB_FILES}; do
+            dtb="$(find '${IMAGE_ROOTFS}/usr/lib' -type f \
+                        -iwholename '*linux-image-*/'${file} | head -1)"
 
-        cp -f "$dtb" "${DEPLOYDIR}/"
-    done
+            if [ -z "$dtb" -o ! -e "$dtb" ]; then
+                die "${file} not found"
+            fi
+
+            cp -f "$dtb" "${DEPLOYDIR}/${IMAGE_FULLNAME}.dtbs"
+        done
+    fi
 }
 addtask copy_boot_files before do_rootfs_postprocess after do_rootfs_install
 

@@ -57,7 +57,9 @@ class BootimgEFIPlugin(SourcePlugin):
         if dtb:
             if ';' in dtb:
                 raise WicError("Only one DTB supported, exiting")
-            cp_cmd = "cp %s/%s %s" % (bootimg_dir, dtb, hdddir)
+            image_fullname = get_bitbake_var("IMAGE_FULLNAME")
+            dtbs_dir = os.path.join(bootimg_dir + "/" + image_fullname + ".dtbs")
+            cp_cmd = "cp %s/%s %s" % (dtbs_dir, dtb, hdddir)
             exec_cmd(cp_cmd, True)
 
     @classmethod
@@ -353,8 +355,10 @@ class BootimgEFIPlugin(SourcePlugin):
                 if dtb:
                     if ';' in dtb:
                         raise WicError("Only one DTB supported, exiting")
+                    image_fullname = get_bitbake_var("IMAGE_FULLNAME")
+                    dtbs_dir = os.path.join(deploy_dir + "/" + image_fullname + ".dtbs")
                     dtb_params = '--add-section .dtb=%s/%s --change-section-vma .dtb=0x40000' % \
-                        (deploy_dir, dtb)
+                        (dtbs_dir, dtb)
                 else:
                     dtb_params = ''
 

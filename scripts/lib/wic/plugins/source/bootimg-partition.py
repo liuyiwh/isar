@@ -183,9 +183,15 @@ class BootimgPartitionPlugin(SourcePlugin):
 
         logger.debug('Kernel dir: %s', bootimg_dir)
 
+        image_fullname = get_bitbake_var("IMAGE_FULLNAME")
+        dtbs_dir = os.path.join(kernel_dir + "/" + image_fullname + ".dtbs/")
 
         for task in cls.install_task:
             src_path, dst_path = task
+            dtb_file = os.path.join(dtbs_dir + os.path.basename(src_path))
+            if os.path.exists(dtb_file):
+                src_path = os.path.join(dtbs_dir + src_path)
+                
             logger.debug('Install %s as %s', src_path, dst_path)
             install_cmd = "install -m 0644 -D %s %s" \
                           % (os.path.join(kernel_dir, src_path),
