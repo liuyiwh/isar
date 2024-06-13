@@ -278,3 +278,16 @@ EOF
 do_dpkg_source:prepend() {
 	dpkg_configure_kernel
 }
+
+do_deploy[dirs] = "${DEPLOY_DIR_IMAGE}"
+do_deploy[cleandirs] = "${WORKDIR}/deploy"
+do_deploy() {
+    dpkg --fsys-tarfile ${WORKDIR}/linux-image-${KERNEL_NAME}_${CHANGELOG_V}_${PACKAGE_ARCH}.deb | \
+    tar --wildcards --extract --directory ${WORKDIR}/deploy ./usr/lib/linux-image-* 
+    for dtb in ${DTB_FILES}; do
+        mkdir -p ${DEPLOY_DIR_IMAGE}/$(dirname ${dtb})
+        find ${WORKDIR}/deploy/usr/lib/linux-image* -path "*${dtb}" -print \
+            -exec cp {} ${DEPLOY_DIR_IMAGE}/${dtb} \; 
+    done
+}
+addtask deploy before do_deploy_deb after do_dpkg_build
