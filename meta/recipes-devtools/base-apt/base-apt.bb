@@ -24,7 +24,10 @@ populate_base_apt() {
 
         # Check if this package is already in base-apt
         ret=0
-        repo_contains_package "${REPO_BASE_DIR}/${base_distro}" "${package}" ||
+        repo_contains_package "${REPO_BASE_DIR}/${base_distro}" \
+            "${REPO_BASE_DB_DIR}"/"${base_distro}" \
+            "${BASE_DISTRO_CODENAME}" \
+            "${package}" ||
             ret=$?
         [ "${ret}" = "0" ] && continue
         if [ "${ret}" = "1" ]; then
@@ -48,7 +51,6 @@ populate_base_apt() {
     done
 }
 
-do_cache[stamp-extra-info] = "${DISTRO}"
 do_cache[lockfiles] = "${REPO_BASE_DIR}/isar.lock"
 
 repo() {

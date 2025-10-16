@@ -108,7 +108,12 @@ class BootimgEFIPlugin(SourcePlugin):
             if label:
                 label_conf = "LABEL=%s" % label
 
-            kernel, initrd = isar_get_filenames(get_bitbake_var("IMAGE_ROOTFS"))
+            kernel, default_initrd = isar_get_filenames(
+                get_bitbake_var("IMAGE_ROOTFS"), get_bitbake_var("KERNEL_FILE")
+            )
+            if not initrd:
+                initrd = default_initrd
+
             grubefi_conf += "linux /%s %s rootwait %s\n" \
                 % (kernel, label_conf, bootloader.append)
 
@@ -185,10 +190,11 @@ class BootimgEFIPlugin(SourcePlugin):
 
             title = source_params.get('title')
 
-            temp_initrd = initrd
-            kernel, initrd = isar_get_filenames(get_bitbake_var("IMAGE_ROOTFS"))
-            if temp_initrd:
-                initrd = temp_initrd
+            kernel, default_initrd = isar_get_filenames(
+                get_bitbake_var("IMAGE_ROOTFS"), get_bitbake_var("KERNEL_FILE")
+            )
+            if not initrd:
+                initrd = default_initrd
 
             boot_conf = ""
             boot_conf += "title %s\n" % (title if title else "boot")
@@ -414,7 +420,8 @@ class BootimgEFIPlugin(SourcePlugin):
                     grub_target = 'x86_64-efi'
                     grub_image = "bootx64.efi"
                     grub_modules = "multiboot efi_uga iorw ata "
-                    if get_bitbake_var("DISTRO").startswith("ubuntu"):
+                    if get_bitbake_var("DISTRO").startswith("ubuntu") and \
+                        os.path.exists('/usr/lib/grub/x86_64-efi/linuxefi.mod'):
                         grub_modules += "linuxefi "
                 elif distro_arch == "i386":
                     grub_target = 'i386-efi'
@@ -462,7 +469,10 @@ class BootimgEFIPlugin(SourcePlugin):
                 kernel_dir = "/usr/lib/systemd/boot/efi/"
 
                 for mod in [x for x in os.listdir(kernel_dir) if x.startswith("systemd-")]:
-                    cp_cmd = "cp %s/%s %s/EFI/BOOT/%s" % (kernel_dir, mod, hdddir, mod[8:])
+                    target = mod[8:]
+                    if target.endswith('.signed'):
+                        target = target[:-7]
+                    cp_cmd = "cp %s/%s %s/EFI/BOOT/%s" % (kernel_dir, mod, hdddir, target)
                     exec_cmd(cp_cmd, True)
 
                 kernel_dir = kernel_dir_orig

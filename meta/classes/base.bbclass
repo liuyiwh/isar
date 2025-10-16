@@ -1,4 +1,8 @@
+# This software is a part of ISAR.
+#
 # Copyright (C) 2003  Chris Larson
+# Copyright (C) 2015-2025 ilbers GmbH
+# Copyright (C) 2017-2025 Siemens AG
 #
 # Permission is hereby granted, free of charge, to any person obtaining a
 # copy of this software and associated documentation files (the "Software"),
@@ -123,9 +127,10 @@ python() {
     needsrcrev = False
     srcuri = d.getVar('SRC_URI')
     for uri_string in srcuri.split():
-        uri = bb.fetch.URI(uri_string)
-        if uri.scheme in ("svn", "git", "gitsm", "hg", "p4", "repo"):
-            needsrcrev = True
+        if not uri_string.startswith("apt://"):
+            uri = bb.fetch.URI(uri_string)
+            if uri.scheme in ("svn", "git", "gitsm", "hg", "p4", "repo"):
+                needsrcrev = True
 
     if needsrcrev:
         d.setVar("SRCPV", "${@bb.fetch2.get_srcrev(d)}")
@@ -333,3 +338,24 @@ do_unpack[postfuncs] += "create_source_date_epoch_stamp"
 
 def get_source_date_epoch_value(d):
     return oe.reproducible.epochfile_read(d.getVar('SDE_FILE'), d)
+
+def deb_list_beautify(d, varname):
+    line = d.getVar(varname)
+    if not line:
+        return ''
+
+    var_list = []
+    for a in line.split(','):
+        stripped = a.strip()
+        if stripped:
+            var_list.append(stripped)
+    return ', '.join(var_list)
+
+# Deprecation checking
+python deprecation_checking() {
+    if d.getVar('MACHINE') == 'imx6-sabrelite':
+        bb.warn("Target imx6-sabrelite is deprecated and will be removed soon")
+}
+
+deprecation_checking[vardepsexclude] += "MACHINE"
+do_unpack[prefuncs] += "deprecation_checking"

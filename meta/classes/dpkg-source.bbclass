@@ -20,6 +20,13 @@ do_dpkg_source() {
 }
 addtask dpkg_source after do_prepare_build
 
+CLEANFUNCS += "deb_clean_source"
+
+deb_clean_source() {
+    repo_del_srcpackage "${REPO_ISAR_DIR}"/"${DISTRO}" \
+        "${REPO_ISAR_DB_DIR}"/"${DISTRO}" "${DEBDISTRONAME}" "${DEBIAN_SOURCE}"
+}
+
 do_deploy_source[depends] += "isar-apt:do_cache_config"
 do_deploy_source[lockfiles] = "${REPO_ISAR_DIR}/isar.lock"
 do_deploy_source[dirs] = "${S}"
@@ -41,6 +48,7 @@ do_dpkg_build[depends] += "${BPN}:do_deploy_source"
 SCHROOT_MOUNTS = "${WORKDIR}:/work ${REPO_ISAR_DIR}/${DISTRO}:/isar-apt"
 
 do_fetch_common_source[depends] += "${SCHROOT_DEP} ${BPN}:do_deploy_source"
+do_fetch_common_source[lockfiles] = "${REPO_ISAR_DIR}/isar.lock"
 do_fetch_common_source[network] = "${TASK_USE_SUDO}"
 do_fetch_common_source() {
     schroot_create_configs
@@ -71,3 +79,4 @@ do_fetch_common_source() {
 addtask fetch_common_source
 
 do_dpkg_build[depends] += "${@'${PN}:do_dpkg_source' if '${PN}' == '${BPN}' else '${PN}:do_fetch_common_source'}"
+do_clean[depends] += "${@'' if '${PN}' == '${BPN}' else '${BPN}:do_clean'}"

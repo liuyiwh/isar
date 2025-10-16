@@ -8,15 +8,20 @@
 USERS ??= ""
 GROUPS ??= ""
 
+# rebuild rootfs on change of USERS or GROUPS as homes might be created, moved
+# or given different IDs.
 python() {
     for entry in (d.getVar("GROUPS") or "").split():
         group_entry = "GROUP_{}".format(entry)
         d.appendVarFlag("image_postprocess_accounts", "vardeps", " {}".format(group_entry))
+        d.appendVarFlag("do_rootfs_install", "vardeps", " {}".format(group_entry))
 
     for entry in (d.getVar("USERS") or "").split():
         user_entry = "USER_{}".format(entry)
         d.appendVarFlag("image_postprocess_accounts", "vardeps", " {}".format(user_entry))
+        d.appendVarFlag("do_rootfs_install", "vardeps", " {}".format(user_entry))
 }
+do_rootfs_install[vardeps] += "GROUPS USERS"
 
 def image_create_groups(d: "DataSmart") -> None:
     """Creates the groups defined in the ``GROUPS`` bitbake variable.
@@ -127,7 +132,7 @@ def image_create_users(d: "DataSmart") -> None:
                 source_date_epoch = d.getVar("SOURCE_DATE_EPOCH")
                 command.append("-e")
                 salt = hashlib.sha256("{}\n".format(source_date_epoch).encode()).hexdigest()[0:15]
-                password = bb.process.run('openssl passwd -6 --salt {} {}'.format(salt, password))[0].strip()
+                password = bb.process.run(['openssl', 'passwd', '-6', '--salt', salt, password])[0].strip()
 
             else:
                 command.append("-e")

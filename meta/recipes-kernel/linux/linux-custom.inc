@@ -14,6 +14,9 @@ DESCRIPTION ?= "Custom kernel"
 MAINTAINER ?= "isar-users <isar-users@googlegroups.com>"
 DISTRIBUTOR ?= "ISAR"
 
+# pinned due to known or possible issues with compat 12
+DEBIAN_COMPAT:buster = "10"
+
 KBUILD_DEPENDS ?= "build-essential:native, \
                    libelf-dev:native, \
                    libncurses-dev:native, \
@@ -25,6 +28,7 @@ KBUILD_DEPENDS ?= "build-essential:native, \
                    flex, \
                    git, \
                    kmod, \
+                   linux-image-${KERNEL_NAME_PROVIDED}:${DISTRO_ARCH} <kbuild !kernel>, \
                    rsync,"
 
 KERNEL_DEBIAN_DEPENDS ?= "initramfs-tools | linux-initramfs-tool, \
@@ -38,6 +42,8 @@ LIBSSL_DEP:bullseye = "libssl1.1"
 KERNEL_HEADERS_DEBIAN_DEPENDS ?= "libc6, \
                                   ${LIBSSL_DEP},"
 
+KERNEL_LIBC_DEV_ARCH_ALL = "0"
+KERNEL_LIBC_DEV_ARCH_ALL:trixie = "1"
 KERNEL_LIBC_DEV_DEPLOY ?= "0"
 
 # Settings that may be changed on a per distro, machine or layer basis
@@ -46,6 +52,8 @@ KERNEL_LIBC_DEV_DEPLOY ?= "0"
 LINUX_VERSION_EXTENSION ?= ""
 
 KERNEL_DEFCONFIG ??= ""
+
+HEADERS_INSTALL_EXTRA ??= ""
 
 # Add our template meta-data to the sources
 FILESPATH:append := ":${FILE_DIRNAME}/files"
@@ -76,6 +84,7 @@ TEMPLATE_VARS += "                \
     KERNEL_BUILD_DIR              \
     KERNEL_FILE                   \
     KERNEL_HEADERS_DEBIAN_DEPENDS \
+    KERNEL_LIBC_DEV_ARCH          \
     LINUX_VERSION_EXTENSION       \
     KERNEL_NAME_PROVIDED          \
     KERNEL_CONFIG_FRAGMENTS       \
@@ -83,6 +92,10 @@ TEMPLATE_VARS += "                \
     KAFLAGS                       \
     DISTRIBUTOR                   \
     KERNEL_EXTRA_BUILDARGS        \
+    HEADERS_INSTALL_EXTRA         \
+    ISAR_ENABLE_COMPAT_ARCH       \
+    COMPAT_DISTRO_ARCH            \
+    DEBIAN_COMPAT                 \
 "
 
 inherit dpkg
@@ -112,7 +125,7 @@ BUILD_PROFILES = "kernel kbuild"
 BBCLASSEXTEND:append:cross-profile = " kbuildtarget"
 
 # When cross-profile is active:
-# build only kernel with the default variant of the recipe
+# build only kernel (including config) with the default variant of the recipe
 BUILD_PROFILES:cross-profile = "kernel"
 
 # -native: kbuild package for host
@@ -122,14 +135,18 @@ RECIPE_PROVIDES:class-native = " \
     linux-kbuild-${KERNEL_NAME_PROVIDED}"
 # Use pseudo target to pull in the base variant of the recipe.
 # Will be auto-extended with -native by multiarch.bbclass.
-RDEPENDS:class-native += "${BPN}-pseudo"
+# Using DEPENDS instead of RDEPENDS to ensure creation of kernel including
+# pregenerated kernel config before host specific linux-kbuild package build
+DEPENDS:class-native += "${BPN}-pseudo"
 
 # -kbuildtarget: kbuild package for target, enforcing non-cross-build
 BUILD_PROFILES:class-kbuildtarget = "kbuild"
 RECIPE_PROVIDES:class-kbuildtarget = " \
     linux-headers-${KERNEL_NAME_PROVIDED} \
     linux-kbuild-${KERNEL_NAME_PROVIDED}"
-RDEPENDS:class-kbuildtarget = "${BPN}"
+# Using DEPENDS instead of RDEPENDS to ensure creation of kernel including
+# pregenerated kernel config before target specific linux-kbuild package build
+DEPENDS:class-kbuildtarget = "${BPN}"
 ISAR_CROSS_COMPILE:class-kbuildtarget = "0"
 
 # Make bitbake know we will be producing linux-image and linux-headers packages
@@ -138,7 +155,9 @@ RECIPE_PROVIDES = " \
     linux-image-${KERNEL_NAME_PROVIDED} \
     linux-headers-${KERNEL_NAME_PROVIDED} \
     linux-libc-dev \
+    linux-libc-dev-${KERNEL_NAME_PROVIDED} \
     linux-libc-dev-${DISTRO_ARCH}-cross \
+    linux-libc-dev-${DISTRO_ARCH}-cross-${KERNEL_NAME_PROVIDED} \
     linux-image-${KERNEL_NAME_PROVIDED}-dbg \
     linux-kbuild-${KERNEL_NAME_PROVIDED} \
     ${BPN}-pseudo-native \
@@ -150,6 +169,10 @@ RECIPE_PROVIDES = " \
 RECIPE_PROVIDES:remove:cross-profile = " \
     linux-headers-${KERNEL_NAME_PROVIDED} \
     linux-kbuild-${KERNEL_NAME_PROVIDED}"
+
+# As the multiarch class will not append -compat to -pseudo-native, we end up
+# with two providers of it. Remove the wrong one.
+RECIPE_PROVIDES:remove:class-compat = "${BPN}-pseudo-native"
 
 # Append headers depends
 HEADERS_DEPENDS = ", linux-kbuild-${KERNEL_NAME_PROVIDED} | linux-kbuild-${KERNEL_NAME_PROVIDED}-${DISTRO_ARCH}-cross"
@@ -199,8 +222,11 @@ def get_additional_build_profiles(d):
     profiles = d.getVar('BASE_DISTRO')
     if not bb.utils.to_boolean(d.getVar('KERNEL_LIBC_DEV_DEPLOY')):
         profiles += ' nolibcdev'
+    elif bb.utils.to_boolean(d.getVar('KERNEL_LIBC_DEV_ARCH_ALL')):
+        profiles += ' libcdev-arch-all'
     return profiles
 
+KERNEL_LIBC_DEV_ARCH = "${@ bb.utils.contains('DEB_BUILD_PROFILES', 'libcdev-arch-all', 'all', 'any', d) }"
 DEB_BUILD_PROFILES += "${@get_additional_build_profiles(d)}"
 
 do_prepare_build:prepend() {
@@ -219,6 +245,15 @@ do_prepare_build:prepend() {
 
 	# produce a changelog for our kernel build
 	deb_add_changelog
+
+	# make sure user-specified directories do exist in ${S}
+	if [ -n "${HEADERS_INSTALL_EXTRA}" ]; then
+		for d in ${HEADERS_INSTALL_EXTRA}; do
+			[ -d ${S}/${d} ] || {
+				bbfatal "HEADERS_INSTALL_EXTRA: '${d}' not found in \${S}!"
+			}
+		done
+	fi
 }
 
 # build directory for our "full" kernel build
@@ -275,6 +310,16 @@ EOF
 	done
 }
 
+get_localversion_auto() {
+	if grep -q "^CONFIG_LOCALVERSION_AUTO=y" ${S}/${KERNEL_BUILD_DIR}/.config; then
+		cd ${S}
+		if head=$(git rev-parse --verify --short HEAD 2>/dev/null); then
+			echo "-g${head}" >${S}/.scmversion
+		fi
+	fi
+}
+
 do_dpkg_source:prepend() {
 	dpkg_configure_kernel
+	get_localversion_auto
 }

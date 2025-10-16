@@ -1,5 +1,5 @@
 #
-# Copyright (c) Siemens AG, 2023
+# Copyright (c) Siemens AG, 2023-2025
 #
 # Authors:
 #  Su Bao Cheng <baocheng.su@siemens.com>
@@ -13,7 +13,8 @@ FILESPATH:append := ":${FILE_DIRNAME}/files"
 
 DESCRIPTION = "OPTee Client"
 
-PROVIDES = "libteec1 optee-client-dev tee-supplicant"
+PROVIDES = "libteec1 libckteec0 libseteec0 libteeacl0.1.0"
+PROVIDES += "optee-client-dev tee-supplicant"
 
 SRC_URI += "file://debian"
 
@@ -22,7 +23,7 @@ TEE_FS_PARENT_PATH ?= "/var/lib/optee-client/data/tee"
 RPMB_EMU ?= "0"
 
 TEMPLATE_FILES = "debian/rules.tmpl debian/control.tmpl"
-TEMPLATE_VARS += "TEE_FS_PARENT_PATH RPMB_EMU"
+TEMPLATE_VARS += "DEBIAN_COMPAT TEE_FS_PARENT_PATH RPMB_EMU"
 
 do_prepare_build[cleandirs] += "${S}/debian"
 do_prepare_build() {

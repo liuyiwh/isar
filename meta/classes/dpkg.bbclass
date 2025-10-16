@@ -57,7 +57,7 @@ dpkg_runbuild() {
         value=$(echo "${line}" | cut -d '=' -f2-)
         sbuild_export $var "$value"
 
-        # Don't warn some variables
+        # Don't warn dpkg specific environment variables
         [ "${var}" = "PARALLEL_MAKE" ] && continue
         [ "${var}" = "CCACHE_DIR" ] && continue
         [ "${var}" = "CCACHE_DEBUGDIR" ] && continue
@@ -66,15 +66,10 @@ dpkg_runbuild() {
         [ "${var}" = "PATH_PREPEND" ] && continue
         [ "${var}" = "DEB_BUILD_OPTIONS" ] && continue
 
-        [ "${var}" = "http_proxy" ] && continue
-        [ "${var}" = "HTTP_PROXY" ] && continue
-        [ "${var}" = "https_proxy" ] && continue
-        [ "${var}" = "HTTPS_PROXY" ] && continue
-        [ "${var}" = "ftp_proxy" ] && continue
-        [ "${var}" = "FTP_PROXY" ] && continue
-        [ "${var}" = "no_proxy" ] && continue
-        [ "${var}" = "NO_PROXY" ] && continue
-        [ "${var}" = "GIT_PROXY_COMMAND" ] && continue
+        # Don't warn environment variables exported to the bitbake fetcher
+        case " ${@" ".join(bb.fetch2.FETCH_EXPORT_VARS)} " in
+            *" ${var} "*) continue;;
+        esac
 
         bbwarn "Export of '${line}' detected, please migrate to templates"
     done
@@ -101,6 +96,9 @@ dpkg_runbuild() {
 
     export SBUILD_CONFIG="${SBUILD_CONFIG}"
 
+    # Provide locking filter for schroot
+    sbuild_add_env_filter "PATH"
+
     for envvar in http_proxy HTTP_PROXY https_proxy HTTPS_PROXY \
         ftp_proxy FTP_PROXY no_proxy NO_PROXY; do
         sbuild_add_env_filter "$envvar"
@@ -126,8 +124,7 @@ dpkg_runbuild() {
         --finished-build-commands="rm -f ${deb_dir}/sbuild-build-depends-main-dummy_*.deb" \
         --finished-build-commands="find ${deb_dir} -maxdepth 1 -type f -name '*.deb' -print -exec cp ${CP_FLAGS} -t ${ext_deb_dir}/ {} +" \
         --finished-build-commands="cp /var/log/dpkg.log ${ext_root}/dpkg_partial.log" \
-        --debbuildopts="--source-option=-I" \
-        --build-dir=${WORKDIR} --dist="isar" ${DSC_FILE}
+        --build-path="" --build-dir=${WORKDIR} --dist="${DEBDISTRONAME}" ${DSC_FILE}
 
     sbuild_dpkg_log_export "${WORKDIR}/rootfs/dpkg_partial.log"
     deb_dl_dir_export "${WORKDIR}/rootfs" "${distro}"

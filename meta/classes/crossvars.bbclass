@@ -1,7 +1,10 @@
 # This software is a part of ISAR.
-# Copyright (C) 2022 ilbers GmbH
+# Copyright (C) 2023-2024 ilbers GmbH
+# Copyright (C) 2023-2024 Siemens AG
+#
+# SPDX-License-Identifier: MIT
 
-ISAR_CROSS_COMPILE ??= "0"
+ISAR_CROSS_COMPILE ??= "1"
 
 inherit compat
 
@@ -35,6 +38,6 @@ python __anonymous() {
     d.setVar('SCHROOT_DIR', schroot_dir + flavor_suffix)
     d.setVar('SCHROOT_DEP', sbuild_dep)
     if isar_can_build_compat(d):
-        sdk_toolchain += " crossbuild-essential-" + d.getVar('COMPAT_DISTRO_ARCH')
+        sdk_toolchain += " crossbuild-essential-" + compat_arch
     d.setVar('SDK_TOOLCHAIN', sdk_toolchain)
 }

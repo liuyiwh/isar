@@ -1,5 +1,5 @@
 # This software is a part of ISAR.
-# Copyright (C) Siemens AG, 2019
+# Copyright (C) Siemens AG, 2019-2024
 #
 # SPDX-License-Identifier: MIT
 #
@@ -9,7 +9,11 @@ inherit sbuild
 
 IMAGER_INSTALL ??= ""
 IMAGER_BUILD_DEPS ??= ""
-DEPENDS += "${IMAGER_BUILD_DEPS}"
+
+python() {
+    for dep in d.getVar('IMAGER_BUILD_DEPS').split():
+        d.appendVarFlag('do_image_tools', 'depends', ' ' + dep + ':do_deploy_deb')
+}
 
 SCHROOT_MOUNTS = "${WORKDIR}:${PP_WORK} ${IMAGE_ROOTFS}:${PP_ROOTFS} ${DEPLOY_DIR_IMAGE}:${PP_DEPLOY}"
 SCHROOT_MOUNTS += "${REPO_ISAR_DIR}/${DISTRO}:/isar-apt"
@@ -46,6 +50,7 @@ imager_run() {
 
         E="${@ isar_export_proxies(d)}"
         deb_dl_dir_import ${schroot_dir} ${distro}
+        ${SCRIPTSDIR}/lockrun.py -r -f "${REPO_ISAR_DIR}/isar.lock" -s <<EOAPT
         schroot -r -c ${session_id} -d / -u root -- sh -c " \
             apt-get update \
                 -o Dir::Etc::SourceList='sources.list.d/isar-apt.list' \
@@ -54,6 +59,7 @@ imager_run() {
             apt-get -o Debug::pkgProblemResolver=yes --no-install-recommends -y \
                 --allow-unauthenticated --allow-downgrades --download-only install \
                 ${local_install}"
+EOAPT
 
         deb_dl_dir_export ${schroot_dir} ${distro}
         schroot -r -c ${session_id} -d / -u root -- sh -c " \

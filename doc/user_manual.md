@@ -66,7 +66,8 @@ The steps below describe how to build the images provided by default.
 
 ### Install Host Tools
 
-The supported host system is >= buster.
+The supported host system is >= buster for debootstrap and >= bullseye for
+default mmdebstrap provider.
 
 Building `debian-trixie` requires host system >= bookworm.
 
@@ -75,7 +76,9 @@ Install the following packages:
 apt install \
   binfmt-support \
   bzip2 \
-  debootstrap \
+  mmdebstrap \
+  arch-test \
+  apt-utils \
   dpkg-dev \
   gettext-base \
   git \
@@ -91,6 +94,12 @@ apt install \
   sbuild \
   schroot \
   zstd
+```
+
+If using isar-bootstrap provider, debootstrap should be installed instead of
+mmdebstrap:
+```
+apt install debootstrap
 ```
 
 If your host is >= buster, also install the following package.
@@ -135,7 +144,7 @@ apt install qemu
 
 ### Setup Sudo
 
-Isar requires `sudo` rights without password to work with `chroot` and `debootstrap`. To add them, use the following steps:
+Isar requires `sudo` rights without password to work with `chroot`. To add them, use the following steps:
 ```
  # visudo
 ```
@@ -264,7 +273,7 @@ https://github.com/intel/bmap-tools
 ### Generate container image with root filesystem
 
 A runnable container image is generated if IMAGE_FSTYPES variable includes
-one of the supported container formats `oci`, `oci-archive`, `docker-archive`,
+one of the supported container formats `oci-archive`, `docker-archive`,
 `docker-daemon`, or `containers-storage`.
 Getting a container image can be the main purpose of an Isar configuration, 
 but not only.
@@ -433,8 +442,14 @@ Some other variables include:
  - `HOST_DISTRO_BOOTSTRAP_KEYS` - Analogously to DISTRO_BOOTSTRAP_KEYS: List of gpg key URIs used to verify apt bootstrap repo for the host.
  - `DISTRO_APT_PREMIRRORS` - The preferred mirror (append it to the default URI in the format `ftp.debian.org my.preferred.mirror`. This variable is optional. PREMIRRORS will be used only for the build. The final images will have the sources list as mentioned in DISTRO_APT_SOURCES.
  - `ISAR_USE_APT_SNAPSHOT` - Use a frozen apt snapshot instead of the live mirror. Optional.
+ - `ISAR_APT_DL_LIMIT` - Rate limit the apt fetching to n kB / s. Optional.
+ - `ISAR_APT_RETRIES` - Number of apt fetching retries before giving up. Optional
+ - `ISAR_APT_DELAY_MAX` - Maximum time in seconds apt performs retries. Optional
  - `DISTRO_APT_SNAPSHOT_PREMIRROR` - Similar to `DISTRO_APT_PREMIRRORS` but for a snapshot, pre-defined for supported distros.
- - `ISAR_APT_SNAPSHOT_TIMESTAMP` - Timestamp of the apt snapshot. Automatically derived from `SOURCE_DATE_EPOCH` if not overwritten.
+ - `ISAR_APT_SNAPSHOT_TIMESTAMP` - Unix timestamp of the apt snapshot. Automatically derived from `SOURCE_DATE_EPOCH` if not overwritten. (Consider `ISAR_APT_SNAPSHOT_DATE` for a more user friendly format)
+ - `ISAR_APT_SNAPSHOT_TIMESTAMP[security]` - Unix timestamp of the security distribution. Optional.
+ - `ISAR_APT_SNAPSHOT_DATE` - Timestamp in upstream format (e.g. `20240702T082400Z`) of the apt snapshot. Overrides `ISAR_APT_SNAPSHOT_TIMESTAMP` if set. Otherwise, will be automatically derived from `ISAR_APT_SNAPSHOT_TIMESTAMP`
+ - `ISAR_APT_SNAPSHOT_DATE[security]` - Timestamp in upstream format of the security distribution. Optional.
  - `THIRD_PARTY_APT_KEYS` - List of gpg key URIs used to verify apt repos for apt installation after bootstrapping.
  - `FILESEXTRAPATHS` - The default directories BitBake uses when it processes recipes are initially defined by the FILESPATH variable. You can extend FILESPATH variable by using FILESEXTRAPATHS.
  - `FILESOVERRIDES` - A subset of OVERRIDES used by the build system for creating FILESPATH. The FILESOVERRIDES variable uses overrides to automatically extend the FILESPATH variable.
@@ -454,6 +469,7 @@ following distros:
  - debian-trixie (host >= bookworm)
  - ubuntu-focal
  - ubuntu-jammy (requires host dpkg >= 1.21)
+ - ubuntu-noble (requires host dpkg >= 1.21)
  - raspios-bullseye
 
 User can select appropriate distro for specific machine by setting the following variable in machine configuration file:
@@ -485,7 +501,11 @@ Currently, the following image types are provided:
  - `ext4` - raw ext4 filesystem image (default option for `qemuarm` machine)
  - `wic` - full disk image with user-specified partitions created and populated using the wic tool
  - `ubi` - image for use on mtd nand partitions employing UBI
+ - `ubifs` - raw UBI filesystem image, normally used together with UBI partitions
  - `ova` - Open Virtual Appliance: image for use on VirtualBox or VMware
+ - `squashfs` - raw squashfs filesystem image
+ - `fit` - FIT image as used by U-Boot
+ - `oci-archive`, `docker-archive`, `docker-daemon`, `containers-storage` - see [generating container images](#generate-container-image-with-root-filesystem)
 
 In addition, image types can be converted using suffixes, e.g. `tar.gz`.
 Available conversions are `gz` and `xz`, which both provide image compression.
@@ -578,6 +598,21 @@ To add new machine user should perform the following steps:
 
  - Create `.conf` file in machine folder with the name of your machine.
  - Define in this file variables, that described above in this chapter.
+
+---
+
+### Kernel Support
+
+A machine can be configured to select a specific kernel recipe by setting the `KERNEL_NAME` variable, and may be configured to support multiple kernels by using the `KERNEL_NAMES` variable in addition. The latter is optional, and also enables generating packages like external kernel modules for all specified kernel variants.
+
+For example, in your machine configuration:
+
+```bitbake
+KERNEL_NAME = "armmp"
+KERNEL_NAMES = "armmp mainline"
+```
+
+When `KERNEL_NAMES` is set, recipes inheriting the `per-kernel` class will generate variants for each listed kernel. Installation of each must be explicitly handled in the image.
 
 ---
 
@@ -690,13 +725,13 @@ The `GROUP_<groupname>` variable contains the settings of a group named `groupna
 
 The `USERS` and `USER:<username>` variable works similar to the `GROUPS` and `GROUP:<groupname>` variable. The difference are the accepted flags of the `USER:<username>` variable. It accepts the following flags:
 
- - `password` - The crypt(3) encrypted password. To encrypt a password use for example `mkpasswd` or `openssl passwd -6`. You can find `mkpasswd` in the `whois` package of Debian.
+ - `password` - The clear-text or crypt(3) encrypted password. In case of clear-text password, the `clear-text-password` flag must be set. To encrypt a password use for example `mkpasswd` or `openssl passwd -6`. You can find `mkpasswd` in the `whois` package of Debian.
  - `expire` - A `YYYY-MM-DD` formatted date on which the user account will be disabled. (see useradd(8))
  - `inactive` - The number of days after a password expires until the account is permanently disabled. (see useradd(8))
  - `uid` - The numeric user id.
  - `gid` -  The numeric group id or group name of this users initial login group.
  - `comment` - This users comment field. Commonly the following format `full name,room number,work phone number,home phone number,other entry`.
- - `home` - This users home directory
+ - `home` - This changes the default home directory of the user with `usermod --move-home`. Only takes effect when used together with the `create-home` flag.
  - `shell` - This users login shell
  - `groups` - A space separated list of groups this user is a member of.
  - `flags` - A list of additional flags of the user:
@@ -721,7 +756,6 @@ USER_root[inactive] = "30"
 USER_root[uid] = "0"
 USER_root[gid] = "0"
 USER_root[comment] = "The ultimate root user"
-USER_root[home] = "/home/root"
 USER_root[shell] = "/bin/sh"
 USER_root[groups] = "audio video"
 USER_root[flags] = "create-home system force-passwd-change"
@@ -766,6 +800,20 @@ IMAGE_PREINSTALL = " \
 inherit image
 
 ```
+
+If the resulting image should not ship apt sources used during the build but custom ones (e.g. for end-users to point
+to an external or simply different server when they "apt-get update", custom list files may be listed in `SRC_URI`:
+Isar will copy them to `/etc/apt/sources.list.d/` and omit bootstrap sources. Possible use-cases:
+
+ * image built from base-apt (which is by definition local to the build host)
+
+ * image built from an internal mirror, not reachable by devices running the produced image
+
+ * ship template list files for the end-user to edit (e.g. letting him uncomment `deb` or `deb-src` entries)
+
+It should be noted that Isar will not validate or even load supplied list files: they are simply copied verbatim to
+the root file-system just before creating an image out of it (loading sources from the network would make the build
+non-reproducible).
 
 ### Additional Notes
 
@@ -841,7 +889,10 @@ Below are some of the packages with this scenario at the time of writing this.
 
 ### Compilation of debianized-sources
 
-The `deb` packages are built using `dpkg-buildpackage`, so the sources should contain the `debian` directory with necessary meta information. This way is the default way of adding software that needs to be compiled from source. The bbclass for this approach is called `dpkg`.
+The `deb` packages are built using `sbuild`, so the sources should contain the
+`debian` directory with necessary meta information. This way is the default
+way of adding software that needs to be compiled from source. The bbclass for
+this approach is called `dpkg`.
 
 For large applications that are not cross-compiled, it may be needed to extend the default build timeout of 150 minutes to a greater value: set `DPKG_BUILD_TIMEOUT` in your recipe to that effect.
 
@@ -954,6 +1005,7 @@ Note that the package will be build using the whole debian package workflow, so 
 Other (optional) customization variables include:
  - `DEBIAN_PROVIDES` - declare a virtual package to satisfy dependencies
  - `DEBIAN_REPLACES` - to replace a package with another
+ - `DEBIAN_BREAKS` - Packages which break other packages
 
 ### Prebuilt .deb packages from somewhere
 
@@ -976,7 +1028,7 @@ While isar is building the system, build statistics is collected in
 The collected statistics can be represented visually by using
 `pybootchartgui.py` script (borrowed from OpenEmbedded):
 ```
-../scripts/pybootchartgui/pybootchartgui.py tmp/buildstats/20210911054429/ -f pdf -o ~/buildstats.pdf
+<path-to-isar>/scripts/pybootchartgui/pybootchartgui.py tmp/buildstats/20210911054429/ -f pdf -o ~/buildstats.pdf
 ```
 
 NOTE: `python3-cairo` package is required for `pybootchartgui.py` to work:
@@ -1093,11 +1145,51 @@ modprobe example-module
 mokutil --import /etc/sb-mok-keys/MOK/MOK.der
 ```
 
-Use the previously definded password to enroll the key, then reboot.
+Use the previously defined password to enroll the key, then reboot.
+
+If EFI variable access is disabled on kernel (due to high latencies under RT kernel),
+enrolling will result in failure `EFI variables are not supported on this system`.
+EFI variable access can be enabled by passing `efi=runtime` kernel parameter.
+
+Similarly, in cases where EFI variables are not supported, the system will not be able
+to import the keys defined on the platform in the kernel platform keyring. This will also
+result in kernel modules not being verified if they are signed with one of these platform keys.
 
 **Boot self-signed image**:
 
 Now the image should be up again and `modprobe example-module` should work.
+
+**Sign kernel modules with custom signer hooks**
+
+The kernel module signing process establishes a chain of trust from the kernel to the modules, ensuring that
+all components of the system are from trusted sources. If Secure Boot is enabled or the module signing
+facility is enabled by kernel configuration or via `module.sig_enforce` kernel parameter, the kernel checks
+the signature of the modules against the public keys from kernel system keyring and kernel platform keyring.
+
+Please note that if the certificates you use to sign modules are not included in one of these keyrings or are
+blacklisted, the signature will be rejected and the module will not be loaded by the kernel.
+
+Many regulatory standards and compliance frameworks require the use of signing methods that are
+designed to protect cryptographic keys and signing operations to ensure a high level of security.
+
+In order to use solutions like Hardware Security Module (HSM) or server-side signing, which
+are usually made available via a client, an API endpoint or a plug-in, for signing kernel modules,
+Isar provides a build profile called `pkg.signwith` for kernel module recipes.
+
+To provide a signer script that implements your custom signing solution, `SIGNATURE_SIGNWITH` variable
+can be set for the script path within the module recipe together with `SIGNATURE_CERTFILE` to define the public
+certificate path of the signer.
+
+In order to choose between different signing solutions, signer recipes should provide the `module-signer`
+target and package while certificate provider recipes should provide the `secure-boot-secrets` as target and package
+to meet build dependencies. This way, desired signers and certificates can be configured using `PREFERRED_PROVIDER`.
+
+Please see how `module-signer-example` hook generates a detached signature for the kernel module implemented in
+`example-module-signedwith` recipe.
+
+You can enable build-wide kernel module signing by defining `KERNEL_MODULE_SIGNATURES = "1"` globally,
+in this case, `pkg.signwith` build profile is added by default in addition to
+`module-signer` and `secure-boot-secrets` target and package dependencies to the kernel module recipes.
 
 ### Cross Support for Imagers
 
@@ -1116,6 +1208,10 @@ Just like OpenEmbedded, Isar supports a devshell target for all dpkg package
 recipes. This target opens a terminal inside the schroot rootfs that runs the
 package build. To invoke it, just call
 `bitbake mc:${MACHINE}-${DISTRO}:<package_name> -c devshell`.
+
+To debug build dependency issues, there is also the devshell_nodeps target. It
+skips any failing dependency installation, allowing to run them manually in the
+schroot.
 
 
 ## Using ccache for custom packages
@@ -1193,6 +1289,12 @@ One may chroot into the SDK and install required target packages with the help o
 SDK_INCLUDE_ISAR_APT = "1"
 ```
 
+ - Set ISAR_CROSS_COMPILE by 1 for foreign architectures
+
+```
+ISAR_CROSS_COMPILE = "1"
+```
+
  - Trigger creation of SDK root filesystem
 
 ```
@@ -1208,7 +1310,7 @@ sudo tar xf tmp/deploy/images/qemuarm/isar-image-base-sdk-debian-bullseye-qemuar
  - Mount the following directories in chroot by passing resulting rootfs as an argument to the script `mount_chroot.sh`:
 
 ```
-cat ../scripts/mount_chroot.sh
+cat <path-to-isar>/scripts/mount_chroot.sh
 #!/bin/sh
 
 set -e
@@ -1220,7 +1322,7 @@ mount devtmpfs $1/dev     -t devtmpfs -o mode=0755,nosuid
 mount devpts   $1/dev/pts -t devpts   -o gid=5,mode=620
 mount tmpfs    $1/dev/shm -t tmpfs    -o rw,seclabel,nosuid,nodev
 
-sudo ../scripts/mount_chroot.sh tmp/deploy/images/qemuarm/isar-image-base-sdk-debian-bullseye-qemuarm
+sudo <path-to-isar>/scripts/mount_chroot.sh tmp/deploy/images/qemuarm/isar-image-base-sdk-debian-bullseye-qemuarm
 
 ```
 
@@ -1273,7 +1375,7 @@ public nameserver like:
  - Unmount rootfs paths:
 
 ```
-sudo ../scripts/umount_chroot.sh tmp/deploy/images/qemuarm/isar-image-base-sdk-debian-bullseye-qemuarm
+sudo <path-to-isar>/scripts/umount_chroot.sh tmp/deploy/images/qemuarm/isar-image-base-sdk-debian-bullseye-qemuarm
 ```
 
 ## Create a containerized Isar SDK root filesystem
@@ -1516,3 +1618,119 @@ SBUILD_CHROOT_PREINSTALL_EXTRA += "<base packages>"
 
 Then, in the dpkg recipe of your package, simply set `SBUILD_FLAVOR = "<your flavor>"`.
 To install additional packages into the sbuild chroot, add them to `SBUILD_CHROOT_PREINSTALL_EXTRA`.
+
+## Pre-install container images
+
+If an isar-generated image shall provide a container runtime, it may also be
+desirable to pre-install container images to avoid having to download them on
+first boot or because they may not be accessible outside of the build
+environment. Isar supports this scenario via two services, a container fetcher
+and a container loader.
+
+### Bitbake fetcher for containers
+
+The bitbake fetching protocol "docker://" allows to download pre-built images
+from container registries. The URL consists of the image path, followed by
+a recommended digest in the form `digest=sha256:<sha256sum>` and an optional
+tag in the form `tag=<tag>`. A digest is preferred over a tag to identify an
+image when fetching because it also allows to validate its integrity. If a tag
+is not specified, `latest` is used as tag name.
+
+In case a multi-arch image is specified, the fetcher will only pull for the
+package architecture of the requesting recipe (`PACKAGE_ARCH`). The fetched
+images are stored as zstd-compressed in docker-archive format in the
+`WORKDIR` of the recipe. The name of the image is derived from the container
+image name, replacing all `/` with `.` and appending `:<tag>.zst`. Example:
+`docker://debian;tag=bookworm` will be saved as `debian:bookworm.zst`.
+
+### Container loader helpers
+
+To create a Debian package which can carry container images and load them into
+local storage of docker or podman, there is a set of helpers available. To use
+them in an own recipe, add
+`require recipes-support/container-loader/docker-loader.inc` when using docker
+and `require recipes-support/container-loader/podman-loader.inc` when using
+podman. The loader will try to transfer the packaged image into the container
+runtime storage on boot, but only if no container image of the same name and
+tag is present already.
+
+Unless `CONTAINER_DELETE_AFTER_LOAD` is set to `1`, the source container images
+remain by default available and may be used again for loading the storage after
+it may have been emptied later on (factory reset).
+
+Source container images may either be fetched as binaries from a registry, see
+above, or built via isar as well.
+
+### Example
+
+This creates a debian package which will download, package and then load the
+`debian:bookworm-20240701-slim` container image into the docker container
+storage. The package will depend on `docker.io`, insuring that that basic
+runtime services are installed on the target as well. The packaged image will
+be deleted from the target device's rootfs after successful import.
+
+```
+require recipes-support/container-loader/docker-loader.inc
+
+CONTAINER_DELETE_AFTER_LOAD = "1"
+
+SRC_URI += "docker://debian;digest=sha256:f528891ab1aa484bf7233dbcc84f3c806c3e427571d75510a9d74bb5ec535b33;tag=bookworm-20240701-slim"
+```
+
+## Customize the initramfs
+
+Isar supports the customization of initramfs images by providing an
+infrastructure for quickly creating hooks and by allowing to replace the
+Debian-generated image with a separately built one.
+
+### Creating initramfs hooks
+
+To create an initramfs hook that adds tools or modules to the image and may
+also run custom scripts during boot, use the include file
+`recipes-initramfs/initramfs-hook/hook.inc`. It is controlled via a number of
+variables:
+
+ - `HOOK_PREREQ` defines the prerequisites for running the hook script.
+ - `HOOK_ADD_MODULES` passes the provided modules names to the
+   `manual_add_modules` function during initramfs creation.
+ - `HOOK_COPY_EXECS` identifies the source of the passed executables on the
+   rootfs that runs mkinitramfs and passes that to `copy_exec`. If an
+   executable is not found, an error thrown, and the creation fails.
+ - `SCRIPT_PREREQ` defines the prerequisites for running the boot script(s).
+
+If the generated hook script is not sufficient, you can append an own
+bottom-half script by providing a `hook` file in `${WORKDIR}`. It will be
+appended to the `hook-header` that the helper generates.
+
+For running a custom script during boot-up, provide a bottom-half file in
+`${WORKDIR}`. Its name defines where it is hooked up with the initramfs boot
+process: `init-top`, `init-premount`, `local-top`, `nfs-top`, `local-block`,
+`local-premount`, `nfs-premount`, `local-bottom`, `nfs-bottom`, `init-bottom`.
+If you do not benefit from the script header with its static `SCRIPT_PREREQ`,
+you may instead provide `init-top-complete`, `init-premount-complete` etc. to
+still use automatic installation while defining the boot script completely
+yourself.
+
+See https://manpages.debian.org/stable/initramfs-tools-core/initramfs-tools.7.en.html
+for further details.
+
+The hook recipe should follow the naming convention `initramfs-<hook-name>-hook`
+so that its scripts will then be called `<hook-name>` in the generated
+initramfs.
+
+See `initramfs-example` for an exemplary hook recipe.
+
+### Creating an initramfs image aside the rootfs
+
+To avoid shipping all tools and binaries needed to generate an initramfs, isar
+provides the initramfs class. It creates a temporary Debian rootfs with all
+those dependencies and generates the initramfs from there, rather than the
+target's rootfs.
+
+This initramfs class should be pulled in by an image recipe. Said recipe
+specifies all dependencies of the initramfs via `INITRAMFS_INSTALL` for
+self-built packages and `INITRAMFS_PREINSTALL` for prebuilt ones, analogously
+to the respective `IMAGE_*` variables. Note that the kernel is automatically
+added to `INITRAMFS_INSTALL` if `KERNEL_NAME` is set.
+
+See `isar-initramfs` for an example recipe.

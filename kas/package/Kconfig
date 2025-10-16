@@ -41,6 +41,7 @@ config KAS_INCLUDE_PACKAGE_EXAMPLE_RAW
 config PACKAGE_EXAMPLE_MODULE
         bool "example-module"
         default y
+        depends on !MACHINE_CONTAINER_AMD64
 
 config KAS_INCLUDE_PACKAGE_EXAMPLE_MODULE
         string
@@ -61,6 +62,7 @@ config KAS_INCLUDE_PACKAGE_EXAMPLE_PREBUILT
 config PACKAGE_EXPAND_ON_FIRST_BOOT
         bool "expand-on-first-boot"
         default y
+        depends on !MACHINE_QEMU_AMD64_ISO
 
 config KAS_INCLUDE_PACKAGE_EXPAND_ON_FIRST_BOOT
         string
@@ -145,6 +147,30 @@ config KAS_INCLUDE_PACKAGE_ISAR_CI_SSH_SETUP
         string
         default "kas/package/pkg_sshd-regen-keys.yaml"
         depends on PACKAGE_ISAR_CI_SSH_SETUP
+
+
+config PACKAGE_PREBUILT_DOCKER_IMG
+        bool "prebuilt-docker-img"
+        default y
+        depends on ARCH_AMD64 || ARCH_ARM64 || ARCH_ARM
+        depends on !MACHINE_QEMU_AMD64_ISO
+
+config KAS_INCLUDE_PACKAGE_PREBUILT_DOCKER_IMG
+        string
+        default "kas/package/pkg_prebuilt-docker-img.yaml"
+        depends on PACKAGE_PREBUILT_DOCKER_IMG
+
+config PACKAGE_PREBUILT_PODMAN_IMG
+        bool "prebuilt-podman-img"
+        default y
+        depends on DEBIAN_BULLSEYE || DEBIAN_BOOKWORM || DEBIAN_TRIXIE || UBUNTU_JAMMY || UBUNTU_NOBLE
+        depends on ARCH_AMD64 || ARCH_ARM64 || ARCH_ARM
+        depends on !MACHINE_QEMU_AMD64_ISO
+
+config KAS_INCLUDE_PACKAGE_PREBUILT_PODMAN_IMG
+        string
+        default "kas/package/pkg_prebuilt-podman-img.yaml"
+        depends on PACKAGE_PREBUILT_PODMAN_IMG
 
 endmenu
 

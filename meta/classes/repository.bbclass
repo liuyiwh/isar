@@ -4,12 +4,19 @@
 #
 # SPDX-License-Identifier: MIT
 
+def repo_expand_opt_fields(d, var):
+    f = d.getVarFlags(var)
+    if not f:
+        return ''
+    return '\n'.join('{}: {}'.format(k, v) for k, v in f.items())
+
 repo_create() {
     local dir="$1"
     local dbdir="$2"
     local codename="$3"
     local distros_in="$4"
     local keyfiles="$5"
+    local conf_append="$6"
 
     if [ -n "${GNUPGHOME}" ]; then
         export GNUPGHOME="${GNUPGHOME}"
@@ -26,6 +33,9 @@ repo_create() {
 	      option="${option}${keyid} "
 	    done
 	    echo "SignWith: ${option}" >> "${dir}"/conf/distributions
+        fi
+        if [ -n "${conf_append}" ]; then
+            echo "${conf_append}" >> "${dir}"/conf/distributions
         fi
     fi
     if [ ! -d "${dbdir}" ]; then
@@ -84,22 +94,42 @@ repo_del_package() {
     if [ -n "${GNUPGHOME}" ]; then
         export GNUPGHOME="${GNUPGHOME}"
     fi
-    local p=$( dpkg-deb --show --showformat '${Package}' "${file}" )
-    local a=$( dpkg-deb --show --showformat '${Architecture}' "${file}" )
-    # removing "all" means no arch
-    local aarg="-A ${a}"
-    [ "${a}" = "all" ] && aarg=""
-    reprepro -b "${dir}" --dbdir "${dbdir}" -C main ${aarg} \
-        remove "${codename}" \
-        "${p}"
+    set -- $( dpkg-deb --show --showformat '${Package} ${Architecture}' "${file}" )
+    local p="${1}" a="${2}"
+    reprepro -b "${dir}" --dbdir "${dbdir}" -C main \
+        removefilter "${codename}" \
+        'Package (= '${p}'), Architecture (= '${a}'), $PackageType (= deb)'
 }
 
 repo_contains_package() {
     local dir="$1"
-    local file="$2"
+    local dbdir="$2"
+    local codename="$3"
+    local file="$4"
     local package
 
-    package=$(find ${dir} -name ${file##*/})
+    # Extract meta-data from the provided .deb file
+    package=$(dpkg-deb -f ${file} Package Version Architecture)
+
+    # Output for each field is "Field: Value"
+    # odd indexes hold field names, even indexes hold values
+    set -- ${package}
+
+    # lookup ${file} in the database for the current suite
+    package=$(reprepro -b ${dir} --dbdir ${dbdir} \
+                       --list-format '${$fullfilename}\n' \
+                       listfilter ${codename} '
+                           Package (= '${2}'),
+                           Version (= '${4}'),
+                           Architecture (= '${6}'),
+                           $PackageType (= deb)')
+
+    # we only need the first match (should there be more). Use shell builtins to avoid
+    # spawning an additional process (e.g. "head")
+    set -- ${package}
+    package="${1}"
+
+    # package found in the database?
     if [ -n "$package" ]; then
         # yes
         cmp --silent "$package" "$file" && return 0

@@ -9,7 +9,6 @@ inherit crossvars
 
 # hook up the -sdk image variant
 BBCLASSEXTEND = "sdk"
-BPN = "${PN}"
 
 python sdk_virtclass_handler() {
     pn = e.data.getVar('PN')
@@ -65,7 +64,6 @@ TAR_TRANSFORM:class-sdk = " --transform='s|rootfs|${IMAGE_FULLNAME}|'"
 
 # bitbake dependencies
 SDKDEPENDS += "sdk-files ${SDK_INSTALL}"
-SDKDEPENDS:append:riscv64 = "${@' crossbuild-essential-riscv64' if bb.utils.to_boolean(d.getVar('ISAR_CROSS_COMPILE')) and d.getVar('PN') != 'crossbuild-essential-riscv64' else ''}"
 DEPENDS:class-sdk = "${SDKDEPENDS}"
 
 SDKROOTFSDEPENDS = ""
@@ -92,9 +90,8 @@ sdkchroot_configscript () {
 
 ROOTFS_POSTPROCESS_COMMAND:append:class-sdk = " sdkchroot_finalize"
 sdkchroot_finalize() {
-    sudo umount -R ${ROOTFSDIR}/dev || true
-    sudo umount ${ROOTFSDIR}/proc || true
-    sudo umount -R ${ROOTFSDIR}/sys || true
+
+    rootfs_do_umounts
 
     # Remove setup scripts
     sudo rm -f ${ROOTFSDIR}/chroot-setup.sh ${ROOTFSDIR}/configscript.sh

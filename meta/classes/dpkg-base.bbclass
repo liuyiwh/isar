@@ -15,7 +15,6 @@ inherit essential
 DEPENDS ?= ""
 RPROVIDES ?= "${PROVIDES}"
 
-DEPENDS:append:riscv64 = "${@' crossbuild-essential-riscv64' if bb.utils.to_boolean(d.getVar('ISAR_CROSS_COMPILE')) and d.getVar('PN') != 'crossbuild-essential-riscv64' else ''}"
 DEB_BUILD_PROFILES ?= ""
 DEB_BUILD_OPTIONS ?= ""
 
@@ -80,94 +79,26 @@ do_adjust_git[lockfiles] += "${DL_DIR}/git/isar.lock"
 inherit patch
 addtask patch after do_adjust_git
 
-SRC_APT ?= ""
-
-# filter out all "apt://" URIs out of SRC_URI and stick them into SRC_APT
 python() {
+    from bb.fetch2 import methods
+
+    # apt-src fetcher
+    import aptsrc_fetcher
+    methods.append(aptsrc_fetcher.AptSrc())
+
     src_uri = (d.getVar('SRC_URI', False) or "").split()
-
-    prefix = "apt://"
-    src_apt = []
     for u in src_uri:
-        if u.startswith(prefix):
-            src_apt.append(u[len(prefix) :])
-            d.setVar('SRC_URI:remove', u)
+        if u.startswith("apt://"):
+            d.appendVarFlag('do_fetch', 'depends', d.getVar('SCHROOT_DEP'))
 
-    d.prependVar('SRC_APT', ' '.join(src_apt))
+            d.appendVarFlag('do_unpack', 'cleandirs', d.getVar('S'))
+            d.setVarFlag('do_unpack', 'network', d.getVar('TASK_USE_SUDO'))
+            break
 
-    if len(d.getVar('SRC_APT').strip()) > 0:
-        bb.build.addtask('apt_unpack', 'do_patch', '', d)
-        bb.build.addtask('cleanall_apt', 'do_cleanall', '', d)
-}
+    # container docker fetcher
+    import container_fetcher
 
-do_apt_fetch() {
-    E="${@ isar_export_proxies(d)}"
-    schroot_create_configs
-
-    session_id=$(schroot -q -b -c ${SBUILD_CHROOT})
-    echo "Started session: ${session_id}"
-
-    schroot_cleanup() {
-        schroot -q -f -e -c ${session_id} > /dev/null 2>&1
-        schroot_delete_configs
-    }
-    trap 'exit 1' INT HUP QUIT TERM ALRM USR1
-    trap 'schroot_cleanup' EXIT
-
-    schroot -r -c ${session_id} -d / -u root -- \
-        rm /etc/apt/sources.list.d/isar-apt.list /etc/apt/preferences.d/isar-apt
-    schroot -r -c ${session_id} -d / -- \
-        sh -c '
-            set -e
-            for uri in $2; do
-                mkdir -p /downloads/deb-src/"$1"/${uri}
-                cd /downloads/deb-src/"$1"/${uri}
-                apt-get -y --download-only --only-source source ${uri}
-            done' \
-                my_script "${BASE_DISTRO}-${BASE_DISTRO_CODENAME}" "${SRC_APT}"
-
-    schroot -e -c ${session_id}
-    schroot_delete_configs
-}
-
-addtask apt_fetch
-do_apt_fetch[lockfiles] += "${REPO_ISAR_DIR}/isar.lock"
-do_apt_fetch[network] = "${TASK_USE_NETWORK_AND_SUDO}"
-
-# Add dependency from the correct schroot: host or target
-do_apt_fetch[depends] += "${SCHROOT_DEP}"
-
-do_apt_unpack() {
-    rm -rf ${S}
-    schroot_create_configs
-
-    schroot_cleanup() {
-        schroot_delete_configs
-    }
-    trap 'exit 1' INT HUP QUIT TERM ALRM USR1
-    trap 'schroot_cleanup' EXIT
-
-    schroot -d / -c ${SBUILD_CHROOT} -- \
-        sh -c '
-            set -e
-            for uri in $2; do
-                dscfile="$(apt-get -y -qq --print-uris --only-source source $uri | cut -d " " -f2 | grep -E "*.dsc")"
-                cd ${PP}
-                cp /downloads/deb-src/"${1}"/${uri}/* ${PP}
-                dpkg-source -x "${dscfile}" "${PPS}"
-            done' \
-                my_script "${BASE_DISTRO}-${BASE_DISTRO_CODENAME}" "${SRC_APT}"
-    schroot_delete_configs
-}
-do_apt_unpack[network] = "${TASK_USE_SUDO}"
-
-addtask apt_unpack after do_apt_fetch
-
-do_cleanall_apt[nostamp] = "1"
-do_cleanall_apt() {
-    for uri in "${SRC_APT}"; do
-        rm -rf "${DEBSRCDIR}"/"${DISTRO}"/"$uri"
-    done
+    methods.append(container_fetcher.Container())
 }
 
 def get_package_srcdir(d):
@@ -183,7 +114,7 @@ def get_package_srcdir(d):
 
 # Each package should have its own unique build folder, so use
 # recipe name as identifier
-PP = "/home/builder/${PN}"
+PP = "/home/builder/${BPN}"
 PPS ?= "${@get_package_srcdir(d)}"
 
 # Empty do_prepare_build() implementation, to be overwritten if needed
@@ -225,7 +156,6 @@ def isar_deb_build_options(d):
 
 # use with caution: might contaminate multiple tasks
 def isar_export_build_settings(d):
-    import os
     os.environ['DEB_BUILD_OPTIONS']  = isar_deb_build_options(d)
     os.environ['DEB_BUILD_PROFILES'] = isar_deb_build_profiles(d)
 
@@ -328,7 +258,7 @@ python do_devshell() {
         apt-get -y -q update -o Dir::Etc::SourceList=\"sources.list.d/isar-apt.list\" -o Dir::Etc::SourceParts=\"-\" -o APT::Get::List-Cleanup=\"0\"; \
         apt-get -y upgrade; \
         {2}; \
-        export PATH=$PATH_PREPEND:$PATH; \
+        if [ -n \"$PATH_PREPEND\" ]; then export PATH=$PATH_PREPEND:$PATH; fi; \
         $SHELL -i \
     '"
     oe_terminal(termcmd.format(schroot, pp_pps, install_deps), "Isar devshell", d)

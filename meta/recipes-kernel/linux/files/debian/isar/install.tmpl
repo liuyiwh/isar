@@ -5,6 +5,16 @@
 # Load common stuff
 . ${S}/debian/isar/common
 
+get_kernel_arch() {
+    case "${1}" in
+        amd64|i386) echo "x86";;
+        arm64) echo "arm64";;
+        armhf) echo "arm";;
+        mipsel) echo "mips";;
+        riscv64) echo "riscv";;
+    esac
+}
+
 do_install() {
 
     # check if our kernel was configured
@@ -129,34 +139,26 @@ install_dtbs() {
 
 install_kmods() {
     [ -n "${CONFIG_MODULES}" ] || return 0
-    ${MAKE} O=${O} INSTALL_MOD_PATH=${deb_img_dir} modules_install
+    ${MAKE} O=${O} modules_install \
+        INSTALL_MOD_PATH=${deb_img_dir} \
+        INSTALL_MOD_STRIP=1
     touch ${deb_img_dir}/lib/modules/${krel}/.fresh-install
     rm -fv ${deb_img_dir}/lib/modules/${krel}/build
     rm -fv ${deb_img_dir}/lib/modules/${krel}/source
     install_kmods_debug
 }
 
-kmods_sign() {
-    [ -n "${CONFIG_MODULE_SIG_ALL}" ] || return 0
-    ${MAKE} O=${O} INSTALL_MOD_PATH=${deb_img_dir} modules_sign
-}
-
 install_kmods_debug() {
     [ -n "${CONFIG_DEBUG_INFO}" ] || return 0
 
-    kmod_inst_dir=${deb_img_dir}/lib/modules
-    kmod_debug_dir=${deb_dbg_dir}/usr/lib/debug
+    kmod_inst_dir=${deb_dbg_dir}/usr/lib/debug
 
-    # copy kernels modules to usr/lib/debug
-    mkdir -p ${kmod_debug_dir}
-    tar -C ${kmod_inst_dir}/ -cO --exclude='modules.*' . | tar -C ${kmod_debug_dir}/ -xf -
-    # strip everything but debug sections for modules in usr/lib/debug
-    find ${kmod_debug_dir} -name *.ko -exec ${CROSS_COMPILE}objcopy --only-keep-debug {} \;
-    # and strip debug sections from modules in lib/modules
-    find ${kmod_inst_dir} -name *.ko -exec ${CROSS_COMPILE}objcopy --strip-debug {} \;
-
-    # re-sign stripped kernel modules
-    kmods_sign
+    # cmd_sign=: Don't sign modules
+    # suffix-y=: Don't compress modules
+    ${MAKE} O=${O} modules_install \
+        INSTALL_MOD_PATH=${kmod_inst_dir} \
+        cmd_sign= \
+        suffix-y=
 }
 
 headers_check() {
@@ -165,13 +167,26 @@ headers_check() {
 
 libc_headers() {
     mkdir -p ${deb_libc_hdr_dir}
-    ${MAKE} O=${O} headers_install INSTALL_HDR_PATH=${deb_libc_hdr_dir}/usr
-    host_arch=$(dpkg-architecture -a${DISTRO_ARCH} -qDEB_HOST_MULTIARCH)
-    mkdir ${deb_libc_hdr_dir}/usr/include/${host_arch}
-    mv ${deb_libc_hdr_dir}/usr/include/asm ${deb_libc_hdr_dir}/usr/include/${host_arch}/
+    arches="${DISTRO_ARCH}"
+    if echo "${DEB_BUILD_PROFILES}" | grep -q "libcdev-arch-all"; then
+        arches="amd64 armhf arm64 i386 mipsel riscv64"
+    fi
+    for distro_arch in ${arches}; do
+        target_arch=$(dpkg-architecture --force -A${distro_arch} -qDEB_TARGET_MULTIARCH)
+        kernel_arch=$(get_kernel_arch ${distro_arch})
+        [ -n "${kernel_arch}" ] || {
+            echo "fatal: don't know the kernel arch for '${distro_arch}'!" >&2
+            return 1
+        }
+        ${MAKE} O=${O} headers_install ARCH=${kernel_arch} INSTALL_HDR_PATH=${deb_libc_hdr_dir}/usr
+        mkdir ${deb_libc_hdr_dir}/usr/include/${target_arch}
+        mv ${deb_libc_hdr_dir}/usr/include/asm ${deb_libc_hdr_dir}/usr/include/${target_arch}/
 
-    mkdir -p ${deb_libc_hdr_cross_dir}
-    ${MAKE} O=${O} headers_install INSTALL_HDR_PATH=${deb_libc_hdr_cross_dir}/usr/${host_arch}
+        if [ "${distro_arch}" = "${DISTRO_ARCH}" ]; then
+            mkdir -p ${deb_libc_hdr_cross_dir}
+            ${MAKE} O=${O} headers_install INSTALL_HDR_PATH=${deb_libc_hdr_cross_dir}/usr/${target_arch}
+        fi
+    done
 }
 
 kernel_tools() {
@@ -192,6 +207,12 @@ kernel_headers() {
     (cd ${S}; find arch/*/include include -type f -o -type l) >>${src_hdr_files}
     (cd ${S}; find arch/${ARCH} -name module.lds -o -name Kbuild.platforms -o -name Platform) >>${src_hdr_files}
     (cd ${S}; find $(find arch/${ARCH} -name include -o -name scripts -type d) -type f) >>${src_hdr_files}
+
+    if [ -n "${HEADERS_INSTALL_EXTRA}" ]; then
+        for d in ${HEADERS_INSTALL_EXTRA}; do
+            (cd ${S}; find ${d} -type f) >>${src_hdr_files}
+        done
+    fi
 
     if [ -n "${CONFIG_MODULES}" ]; then
         echo Module.symvers >> ${obj_hdr_files}
@@ -219,7 +240,7 @@ install_headers() {
     if dpkg --compare-versions "${krel}" "lt" "5.4.24"; then
         headers_check
     fi
-    [ -z ${kern_pkgs["linux-libc-dev"]} ] || libc_headers
+    [ -z ${kern_pkgs["linux-libc-dev-${KERNEL_NAME_PROVIDED}"]} ] || libc_headers
     kernel_headers
 }
 

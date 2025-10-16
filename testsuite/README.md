@@ -57,11 +57,11 @@ $ avocado run ../testsuite/citest.py -t startvm,full
 
 ## Manual running
 
-There is a tool `start_vm.py` which is the replacement for the bash script in
+There is a tool start_vm which is the replacement for the bash script in
 `isar/scripts` directory. It can be used to run image previously built:
 
 ```
-./start_vm.py -a amd64 -b /build -d bullseye -i isar-image-base
+start_vm -a amd64 -b /build -d bullseye -i isar-image-base
 ```
 
 # Tests for running commands under qemu images
@@ -136,6 +136,56 @@ avocado so that isar testsuite files could be found:
 # TESTSUITEDIR="/work/isar/testsuite"
 export PYTHONPATH=${PYTHONPATH}:${TESTSUITEDIR}
 ```
+
+# Code style for testcases
+
+Recommended Python code style for the testcases is based on
+[PEP8 Style Guide for Python Code](https://peps.python.org/pep-0008) with
+several additions described below.
+
+## Using quotes
+
+Despite [PEP8](https://peps.python.org/pep-0008) doesn't have any string quote
+usage recommendations, Isar preferred style is the following:
+
+ - Single quotes for data and small symbol-like strings.
+ - Double quotes for human-readable strings and string interpolation.
+
+## Line wrapping
+
+Argument lists that don't fit in the 79 characters line limit should be placed
+on the new line, keeping them on the same line if possible. Otherwise every
+single argument should be placed in separate line.
+
+## String formatting
+
+Use format strings (f"The value is {x}") instead of printf-style formatting
+("The value is %d" % x) or string concatenations ("The value is " + str(x)).
+
+## Function definition spacing
+
+Any function and class definition should be done in the following way:
+
+ - One line before and after inner functions.
+ - Two lines before and after module-level functions and classes.
+
+## Tools for checking code style
+
+To check the compliance with PEP8 standards:
+
+```
+$ flake8 sample.py
+```
+
+To format the code to recommended code style:
+
+```
+$ black -S -l 79 sample.py
+```
+
+Black use it's own [code style](https://black.readthedocs.io/en/stable/the_black_code_style/current_style.html)
+based on [PEP8](https://peps.python.org/pep-0008), so some options should be
+used to set non-default style checking behaviour.
 
 # Example of the downstream testcase
 

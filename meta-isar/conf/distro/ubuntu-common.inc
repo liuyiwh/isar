@@ -16,6 +16,10 @@ BOOTSTRAP_KEY = "file://${LAYERDIR_isar}/conf/distro/ubuntu.public.key;sha256sum
 DISTRO_BOOTSTRAP_KEYS += "${BOOTSTRAP_KEY}"
 HOST_DISTRO_BOOTSTRAP_KEYS += "${BOOTSTRAP_KEY}"
 
+# from noble on this package does not exist anymore, before it is needed
+DISTRO_BOOTSTRAP_BASE_PACKAGES:append:focal = " usrmerge"
+DISTRO_BOOTSTRAP_BASE_PACKAGES:append:jammy = " usrmerge"
+
 # kernel package name is linux-image-generic in Ubuntu
 KERNEL_NAME = "generic"
 
@@ -31,10 +35,13 @@ DISTRO_KERNELS ?= " \
 IMAGE_PREINSTALL += "init"
 IMAGE_PREINSTALL += "initramfs-tools"
 
-IMAGER_INSTALL:wic += "python3-distutils"
+UBUNTU_WIC_DEPS = ""
+UBUNTU_WIC_DEPS:focal = "python3-distutils"
+UBUNTU_WIC_DEPS:jammy = "python3-distutils"
+IMAGER_INSTALL:wic += "${UBUNTU_WIC_DEPS}"
 
 SYSTEMD_BOOTLOADER_INSTALL:focal = "systemd:${DISTRO_ARCH}"
 SYSTEMD_BOOTLOADER_INSTALL:jammy = "systemd:${DISTRO_ARCH}"
 
 # snapshot mirror for reproducible builds
-DISTRO_APT_SNAPSHOT_PREMIRROR ??= "(http|https)://archive.ubuntu.com/(.*) https://snapshot.ubuntu.com/\2/${APT_SNAPSHOT_DATE}/\n"
+DISTRO_APT_SNAPSHOT_PREMIRROR ??= "(http|https)://archive.ubuntu.com/(.*) https://snapshot.ubuntu.com/\2/${ISAR_APT_SNAPSHOT_DATE}\n"

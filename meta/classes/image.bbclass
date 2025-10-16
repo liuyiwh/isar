@@ -67,12 +67,20 @@ inherit essential
 
 ROOTFSDIR = "${IMAGE_ROOTFS}"
 ROOTFS_FEATURES += "clean-package-cache clean-pycache generate-manifest export-dpkg-status clean-log-files clean-debconf-cache"
+# when using a custom initrd, do not generate one as part of the image rootfs
+ROOTFS_FEATURES += "${@ '' if d.getVar('INITRD_IMAGE') == '' else 'no-generate-initrd'}"
 ROOTFS_PACKAGES += "${IMAGE_PREINSTALL} ${@isar_multiarch_packages('IMAGE_INSTALL', d)}"
 ROOTFS_MANIFEST_DEPLOY_DIR ?= "${DEPLOY_DIR_IMAGE}"
 ROOTFS_DPKGSTATUS_DEPLOY_DIR ?= "${DEPLOY_DIR_IMAGE}"
 ROOTFS_PACKAGE_SUFFIX ?= "${PN}-${DISTRO}-${MACHINE}"
 
-ROOTFS_POSTPROCESS_COMMAND:prepend = "${@bb.utils.contains('BASE_REPO_FEATURES', 'cache-deb-src', 'cache_deb_src', '', d)} "
+CACHE_DEB_SRC = "${@bb.utils.contains('BASE_REPO_FEATURES', 'cache-deb-src', '1', '0', d)}"
+python () {
+    if bb.utils.to_boolean(d.getVar('CACHE_DEB_SRC')):
+        bb.build.addtask('do_cache_deb_src', 'do_deploy', 'do_image', d)
+}
+
+ROOTFS_POSTPROCESS_COMMAND:prepend = "${@bb.utils.contains('BASE_REPO_FEATURES', 'cache-dbg-pkgs', 'cache_dbg_pkgs', '', d)} "
 
 inherit rootfs
 inherit sdk
@@ -80,18 +88,16 @@ inherit image-tools-extension
 inherit image-postproc-extension
 inherit image-locales-extension
 inherit image-account-extension
+inherit image-customizations
 
 # Extra space for rootfs in MB
 ROOTFS_EXTRA ?= "64"
 
 def get_rootfs_size(d):
-    import subprocess
+    import subprocess, oe.utils
     rootfs_extra = int(d.getVar("ROOTFS_EXTRA"))
 
-    output = subprocess.check_output(
-        ["sudo", "du", "-xs", "--block-size=1k", d.getVar("IMAGE_ROOTFS")]
-    )
-    base_size = int(output.split()[0])
+    base_size = int(oe.utils.directory_size(d.getVar("IMAGE_ROOTFS")) / 1024)
 
     return base_size + rootfs_extra * 1024
 
@@ -132,7 +138,7 @@ IMAGE_BASETYPES = "${@get_image_basetypes(d)}"
 
 # image types
 IMAGE_CLASSES ??= ""
-IMGCLASSES = "imagetypes imagetypes_wic imagetypes_vm imagetypes_container"
+IMGCLASSES = "imagetypes imagetypes_wic imagetypes_vm imagetypes_container squashfs"
 IMGCLASSES += "${IMAGE_CLASSES}"
 inherit ${IMGCLASSES}
 
@@ -284,6 +290,7 @@ python() {
         # set per type imager dependencies
         d.setVar('INSTALL_image_%s' % bt_clean, d.getVar('IMAGER_INSTALL'))
         d.appendVar('INSTALL_image_%s' % bt_clean, ' ' + ' '.join(sorted(local_imager_install | local_conversion_install)))
+        d.appendVarFlag(task, 'vardeps', ' INSTALL_image_%s' % bt_clean)
 
     d.appendVar('IMAGER_INSTALL', ' ' + ' '.join(sorted(imager_install | conversion_install)))
     d.appendVar('IMAGER_BUILD_DEPS', ' ' + ' '.join(sorted(imager_build_deps)))
@@ -341,17 +348,6 @@ do_copy_boot_files() {
         sudo cat "$kernel" > "${DEPLOYDIR}/${KERNEL_IMAGE}"
     fi
 
-    if [ -z "${INITRD_IMAGE}" ]; then
-        # deploy default initrd if no custom one is build
-        initrd="$(realpath -q '${IMAGE_ROOTFS}/initrd.img')"
-        if [ ! -f "$initrd" ]; then
-            initrd="$(realpath -q '${IMAGE_ROOTFS}/boot/initrd.img')"
-        fi
-        if [ -f "$initrd" ]; then
-            cp -f "$initrd" '${DEPLOYDIR}/${INITRD_DEPLOY_FILE}'
-        fi
-    fi
-
     for file in ${DTB_FILES}; do
         dtb="$(find '${IMAGE_ROOTFS}/usr/lib' -type f \
                     -iwholename '*linux-image-*/'${file} | head -1)"
@@ -392,6 +388,18 @@ python do_deploy() {
 }
 addtask deploy before do_build after do_image
 
+def apt_list_files(d):
+    lists = []
+    sources = d.getVar("SRC_URI").split()
+    for s in sources:
+        _, _, local, _, _, parm = bb.fetch.decodeurl(s)
+        base, ext = os.path.splitext(os.path.basename(local))
+        if ext and ext in (".list"):
+            lists.append(local)
+    return lists
+
+IMAGE_LISTS = "${@ ' '.join(apt_list_files(d)) }"
+
 do_rootfs_finalize() {
     sudo -s <<'EOSUDO'
         set -e
@@ -406,24 +414,19 @@ do_rootfs_finalize() {
                 -maxdepth 1 -name 'qemu-*-static' -type f -delete
         fi
 
-        mountpoint -q '${ROOTFSDIR}/isar-apt' && \
-            umount -l ${ROOTFSDIR}/isar-apt && \
-            rmdir --ignore-fail-on-non-empty ${ROOTFSDIR}/isar-apt
-
-        mountpoint -q '${ROOTFSDIR}/base-apt' && \
-            umount -l ${ROOTFSDIR}/base-apt && \
-            rmdir --ignore-fail-on-non-empty ${ROOTFSDIR}/base-apt
-
-        mountpoint -q '${ROOTFSDIR}/dev' && \
-            umount -l ${ROOTFSDIR}/dev
-        mountpoint -q '${ROOTFSDIR}/proc' && \
-            umount -l ${ROOTFSDIR}/proc
-        mountpoint -q '${ROOTFSDIR}/sys' && \
-            umount -l ${ROOTFSDIR}/sys
-
-        if [ -e "${ROOTFSDIR}/etc/apt/sources-list" ]; then
+        # needed only for debootstrap, mmdebstrap leave a 0000bootstrap.list behind
+        if [ -e "${ROOTFSDIR}/etc/apt/sources-list" ] && \
+           [ -d "${ROOTFSDIR}/etc/apt/sources.list.d" ] && \
+           [ -z "$(find ${ROOTFSDIR}/etc/apt/sources.list.d -mindepth 1)" ]; then
             mv "${ROOTFSDIR}/etc/apt/sources-list" \
                 "${ROOTFSDIR}/etc/apt/sources.list.d/bootstrap.list"
+        fi
+
+        if [ -n "${IMAGE_LISTS}" ]; then
+            find "${ROOTFSDIR}/etc/apt/sources.list.d/" ! -type d -exec rm -f {} \;
+            for l in ${IMAGE_LISTS}; do
+                cp "${WORKDIR}"/${l} "${ROOTFSDIR}/etc/apt/sources.list.d/"
+            done
         fi
 
         rm -f "${ROOTFSDIR}/run/blkid/blkid.tab"
@@ -432,7 +435,7 @@ EOSUDO
 
     # Sometimes qemu-user-static generates coredumps in chroot, move them
     # to work temporary directory and inform user about it.
-    for f in $(sudo find ${ROOTFSDIR} -type f -name *.core); do
+    for f in $(sudo find ${ROOTFSDIR} -type f -name *.core -exec file --mime-type {} \; | grep 'application/x-coredump' | cut -d: -f1); do
         sudo mv "${f}" "${WORKDIR}/temp/"
         bbwarn "found core dump in rootfs, check it in ${WORKDIR}/temp/${f##*/}"
     done
@@ -443,7 +446,7 @@ EOSUDO
         -exec touch '{}' -h -d@${SOURCE_DATE_EPOCH} ';'
 }
 do_rootfs_finalize[network] = "${TASK_USE_SUDO}"
-addtask rootfs_finalize before do_rootfs after do_rootfs_postprocess
+addtask rootfs_finalize before do_rootfs after do_rootfs_postprocess do_generate_initramfs
 
 ROOTFS_QA_FIND_ARGS ?= ""
 

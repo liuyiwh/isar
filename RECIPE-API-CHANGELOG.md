@@ -326,7 +326,7 @@ Output file names now include distro name and architecture/machine name parts.
 ### Using custom package name for linux kernel and headers
 
 Isar assumes that linux kernel is provided by linux-image-${KERNEL_NAME}
-package, while headers are provided by linux-image-${KERNEL_NAME} package.
+package, while headers are provided by linux-headers-${KERNEL_NAME} package.
 This naming may be different in other distributions like Raspberry Pi OS.
 
 KERNEL_IMAGE_PKG and KERNEL_HEADERS_PKG variables allow to use custom package
@@ -572,7 +572,7 @@ the module build recipe.
 Remove all uses of the function deb_compat. The functionality was replaced with
 a dependency to the package debhelper-compat.
 
-Changes in next
+Changes in v0.11
 ---------------
 
 ### Change OPTEE_BINARIES default ###0
@@ -629,3 +629,115 @@ into kernel kbuild package.
     Only the "host" specific package is built automatically at cross builds.
 
   * Support emulated module build with cross-compiled kernel for linux-module
+
+### Rate-Limit apt fetching
+
+When downloading from debian snapshot mirrors, rate limits might apply.
+To limit the amount of parallel fetching to n kB / s, you can set `ISAR_APT_DL_LIMIT="<n>`.
+
+### Custom directories in vendor kernels
+
+Some vendor kernels come with additional directories to be included in the
+linux-headers package in order to support building of their out-of-tree
+drivers. `HEADERS_INSTALL_EXTRA` may be set to a list of directories relative
+to ${S} in any kernel recipes that includes `linux-custom.inc`. A l4t kernel
+recipe would use the following setting:
+
+```
+HEADERS_INSTALL_EXTRA += "nvidia"
+```
+
+### Architecture for dpkg-raw packages
+
+The primary use-case of the dpkg-raw class is to easily package configuration
+and data files into a Debian package: the target architecture will now default
+to "all". It may also be used to package binaries that were built outside of
+Isar: such recipes may still override `DPKG_ARCH` to `"any"` or a specific
+architecture matching binaries to be included in the payload of the package.
+
+This change fixes an issue where a `dpkg` package is built for `-compat` or
+`-native` and `DEPENDS` on a `dpkg-raw` package with `DPKG_ARCH` set to `"all"`.
+Some issues remain with `dpkg-raw` packages targetting a specific architecture:
+Isar will advertise -native and -compat variants even though such recipes can
+only produce packages for that architecture and not what could possibly expect
+for -native or -compat. If we consider a dpkg-raw recipe generating an `arm64`
+package on an `amd64` host: you would expect the -native variant to produce
+an `amd64` package and -compat an 'armhf` package: it will however remain
+`arm64` and build of dependent recipes (image or dpkg) may fail because of
+the architecture mismatch.
+
+### Changes in cleanup handler
+
+Bitbake BuildCompleted event handler is now executed only once per build and
+always outputs a warning if mounts are left behind after the build.
+
+Bitbake exit status depends on ISAR_FAIL_ON_CLEANUP bitbake variable:
+ - 0 or unset: Output a warning, unmount, build succeeds (default).
+ - 1: Output a warning, keep mounts left behind, build fails.
+
+### Stricter rootfs mounts management
+
+rootfs_do_umounts is not called from do_rootfs_finalize anymore.
+
+Every individual task that does mounting must also do the umounting at its end.
+
+### Default boostrap recipe changed to mmdebstrap
+
+New virtual packages bootstrap-host and bootstrap-target are introduced.
+There are two providers of bootstrap-host/-target currently:
+  * isar-mmdebstrap: deafult one using mmdebstrap to prepare rootfs
+  * isar-bootstrap: previous bootstrap implementation left for compatibility
+
+So default bootstrap procedure is now performing with mmdebstrap.
+Previous implementation still can be selected by setting in local.conf:
+
+PREFERRED_PROVIDER_bootstrap-host ?= "isar-bootstrap-host"
+PREFERRED_PROVIDER_bootstrap-target ?= "isar-bootstrap-target"
+
+### Cross-compilation is enabled by default
+
+Default ISAR_CROSS_COMPILE value was changed to "1".
+There is no more need to set global ISAR_CROSS_COMPILE = "1" in local.conf to
+enable cross-compilation. Otherwize ISAR_CROSS_COMPILE = "0" now should be set
+in local.conf to disable cross-compilation for all the recipes.
+Sample local.conf from meta-isar used by isar-init-build-env is also changed
+to enable cross-compilation by default.
+
+### Enable linux-libc-dev package with KERNEL_NAME
+
+By default linux-libc-dev and linux-libc-dev-${DISTRO_ARCH}-cross package
+was generated for architecture it builds for.
+
+This change helps to generate the `linux-libc-dev-${KERNEL_NAME}` and
+`linux-libc-dev-${DISTRO_ARCH}-cross-${KERNEL_NAME}`.
+For example, If `KERNEL_NAME` is configured as `foo` for arm64, now
+`linux-libc-dev-foo` and `linux-libc-dev-arm64-cross-foo` package will be
+generated. This will help to have multiple versions of linux-libc-dev packages
+available for respective bsps in apt feeds.
+
+### ISAR APT Repository
+
+Optional fields of the isar-apt repo can be controlled by adding to the
+`ISAR_APT_OPT_FIELD` map. Example: `ISAR_APT_OPT_FIELD[Origin]="isar"`.
+
+Changes in next
+---------------
+
+### Drop unused container image format `oci`
+
+This was never documented and never had practical relevance. `oci-archive` is
+the useful OCI image format that can be imported, e.g., by podman.
+
+### Control tee-supplicant userspace service usage
+
+Set `TEE_SUPPLICANT_IN_USERLAND` to 0 if you are using a kernel that supports
+`CONFIG_RPMB` and you only need the daemon for RPMB access. Default is 1, but
+this will eventually be changed to 0. Therefore, explicitly set the variable
+to 1 to stay compatible.
+
+### Support for new optee_ftpm
+
+By setting `MS_TPM_20_REF_DIR` in an optee-ftpm recipe, it is now possible to
+use the new optee_ftpm code base from the OP-TEE project. That variable has to
+point to a subdir in `WORKDIR` which contains the unpacked ms-tpm-20-ref source
+code.

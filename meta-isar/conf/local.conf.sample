@@ -1,5 +1,8 @@
 # This software is a part of ISAR.
-# Copyright (C) 2023 ilbers GmbH
+# Copyright (C) 2016-2024 ilbers GmbH
+# Copyright (C) 2017-2024 Siemens AG
+#
+# SPDX-License-Identifier: MIT
 
 #
 # This file is your local configuration file and is where all local user settings
@@ -30,7 +33,7 @@ MACHINE ??= "qemuarm"
 # generation of schroot environment and target root filesystem.
 #
 # This sets the default distribution configuration:
-DISTRO ??= "debian-bullseye"
+DISTRO ??= "debian-bookworm"
 DISTRO_ARCH ??= "armhf"
 
 #
@@ -152,13 +155,17 @@ CONF_VERSION = "1"
 IMAGE_INSTALL = "hello-isar example-raw example-module-${KERNEL_NAME} enable-fsck isar-exclude-docs samefile hello isar-disable-apt-cache cowsay example-prebuilt"
 
 #
+# Container machines don't need example module and enable-fsck.
+IMAGE_INSTALL:remove:container-amd64 = "example-module-${KERNEL_NAME} enable-fsck"
+
+#
 # Machines with secure boot should use signed modules.
 IMAGE_INSTALL:remove:qemuamd64-sb = "example-module-${KERNEL_NAME}"
 IMAGE_INSTALL:append:qemuamd64-sb = " example-module-signed-${KERNEL_NAME}"
 
 #
-# Enable cross-compilation support
-ISAR_CROSS_COMPILE ?= "0"
+# Uncomment this to disable cross-compilation support
+#ISAR_CROSS_COMPILE ?= "0"
 
 #
 # Uncomment to enable 32-bit compat architecture support
@@ -168,6 +175,9 @@ ISAR_CROSS_COMPILE ?= "0"
 # Uncomment this to enable caching of all source packages.
 # Without this feature, only sources of packages downloaded with apt:// are downloaded.
 #BASE_REPO_FEATURES ?= "cache-deb-src"
+
+# Uncomment this to enable caching of all debug symbol packages.
+#BASE_REPO_FEATURES += "cache-dbg-pkgs"
 
 #
 # Uncomment this to enable use of cached base repository
@@ -221,3 +231,7 @@ USER_isar[flags] += "clear-text-password"
 # To know more details about this variable and how to set the value refer below
 # https://reproducible-builds.org/docs/source-date-epoch/
 #SOURCE_DATE_EPOCH =
+
+# Uncomment this to use old isar-bootstrap provider for rootfs prepare
+#PREFERRED_PROVIDER_bootstrap-host ?= "isar-bootstrap-host"
+#PREFERRED_PROVIDER_bootstrap-target ?= "isar-bootstrap-target"
