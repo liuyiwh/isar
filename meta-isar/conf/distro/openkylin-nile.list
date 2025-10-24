@@ -1,0 +1,11 @@
+deb http://archive.build.openkylin.top/openkylin nile main cross pty
+deb http://archive.build.openkylin.top/openkylin nile-security main cross pty
+deb http://archive.build.openkylin.top/openkylin nile-updates main cross pty
+deb http://archive.build.openKylin.top/openkylin nile-proposed main cross pty
+
+
+deb-src http://archive.build.openkylin.top/openkylin nile main cross pty
+deb-src http://archive.build.openkylin.top/openkylin nile-security main cross pty
+deb-src http://archive.build.openkylin.top/openkylin nile-updates main cross pty
+deb-src http://archive.build.openKylin.top/openkylin nile-proposed main cross pty
+

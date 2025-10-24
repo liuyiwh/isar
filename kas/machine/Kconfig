@@ -124,6 +124,8 @@ config MACHINE_QEMU_AMD64
 	select CODENAME_FOCAL
 	select CODENAME_JAMMY
 	select CODENAME_NOBLE
+        select DISTRO_OPENKYLIN
+        select CODENAME_NILE
 	select ARCH_AMD64
 
 config MACHINE_QEMU_ARM
@@ -229,6 +231,8 @@ config MACHINE_VIRTUALBOX
 	select DISTRO_DEBIAN
 	select CODENAME_BULLSEYE
 	select CODENAME_BOOKWORM
+        select DISTRO_OPENKYLIN
+        select CODENAME_NILE
 	select ARCH_AMD64
 
 config MACHINE_VMWARE
@@ -247,6 +251,8 @@ config MACHINE_X86_PC
 	select CODENAME_FOCAL
 	select CODENAME_JAMMY
 	select CODENAME_NOBLE
+        select DISTRO_OPENKYLIN
+        select CODENAME_NILE
 	select ARCH_AMD64
 
 endchoice

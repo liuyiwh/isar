@@ -17,6 +17,9 @@ config DISTRO_RASPIOS
 config DISTRO_UBUNTU
 	bool
 
+config DISTRO_OPENKYLIN
+        bool
+
 config CODENAME_BUSTER
 	bool
 
@@ -40,6 +43,9 @@ config CODENAME_JAMMY
 
 config CODENAME_NOBLE
 	bool
+
+config CODENAME_NILE
+        bool
 
 choice
 	prompt "Distro selection"
@@ -85,6 +91,10 @@ config UBUNTU_NOBLE
 	bool "Ubuntu 24.04 (Noble)"
 	depends on (DISTRO_UBUNTU && CODENAME_NOBLE) || ANY_MACHINE_DISTRO
 
+config OPENKYLIN_NILE
+        bool "Openkylin 2 (Nile)"
+        depends on (DISTRO_OPENKYLIN && CODENAME_NILE) || ANY_MACHINE_DISTRO
+
 endchoice
 
 config ANY_MACHINE_DISTRO
@@ -106,5 +116,6 @@ config KAS_INCLUDE_DISTRO
 	default "kas/distro/ubuntu-focal.yaml" if UBUNTU_FOCAL
 	default "kas/distro/ubuntu-jammy.yaml" if UBUNTU_JAMMY
 	default "kas/distro/ubuntu-noble.yaml" if UBUNTU_NOBLE
+        default "kas/distro/openkylin-nile.yaml" if OPENKYLIN_NILE
 
 endmenu
