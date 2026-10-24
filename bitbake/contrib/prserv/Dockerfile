@@ -28,7 +28,7 @@
 # prserv
 #
 
-FROM alpine:3.14.4
+FROM alpine:3.24.3
 
 RUN apk add --no-cache python3
 
